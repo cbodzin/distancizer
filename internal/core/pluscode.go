@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 var googleMapsCoordRe = regexp.MustCompile(`@(-?\d+\.?\d*),(-?\d+\.?\d*)`)
 
-func detectInputType(input string) string {
+func DetectInputType(input string) string {
 	trimmed := strings.TrimSpace(input)
 
 	// Check for full Plus Code (e.g. 87G2GMHP+GG)
@@ -21,7 +21,7 @@ func detectInputType(input string) string {
 
 	// Check for compound Plus Code (e.g. "MW2F+27 Wexford, PA" or "CWC8+R9, Mountain View, CA")
 	// The short code is the portion up to the first space or comma after the '+'.
-	if shortCode, _ := parseCompoundPlusCode(trimmed); shortCode != "" {
+	if shortCode, _ := ParseCompoundPlusCode(trimmed); shortCode != "" {
 		if olc.CheckShort(shortCode) == nil {
 			return "compound_pluscode"
 		}
@@ -37,7 +37,7 @@ func detectInputType(input string) string {
 	return "address"
 }
 
-func extractFullPlusCode(input string) (Coord, error) {
+func ExtractFullPlusCode(input string) (Coord, error) {
 	trimmed := strings.TrimSpace(input)
 	area, err := olc.Decode(trimmed)
 	if err != nil {
@@ -47,7 +47,7 @@ func extractFullPlusCode(input string) (Coord, error) {
 	return Coord{Lat: lat, Lng: lng}, nil
 }
 
-func extractGoogleMapsCoords(input string) (Coord, error) {
+func ExtractGoogleMapsCoords(input string) (Coord, error) {
 	matches := googleMapsCoordRe.FindStringSubmatch(input)
 	if matches == nil {
 		return Coord{}, fmt.Errorf("no coordinates found in URL")
@@ -63,7 +63,7 @@ func extractGoogleMapsCoords(input string) (Coord, error) {
 	return Coord{Lat: lat, Lng: lng}, nil
 }
 
-func parseCompoundPlusCode(input string) (shortCode, locality string) {
+func ParseCompoundPlusCode(input string) (shortCode, locality string) {
 	trimmed := strings.TrimSpace(input)
 
 	// Find the '+' that's part of the Plus Code

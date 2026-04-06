@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"encoding/json"
@@ -31,7 +31,7 @@ type CommuteResult struct {
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func searchAddresses(query string, limit int) ([]GeoResult, error) {
+func SearchAddresses(query string, limit int) ([]GeoResult, error) {
 	u := fmt.Sprintf("https://nominatim.openstreetmap.org/search?q=%s&format=json&limit=%d&addressdetails=1",
 		url.QueryEscape(query), limit)
 
@@ -68,8 +68,8 @@ func searchAddresses(query string, limit int) ([]GeoResult, error) {
 	return results, nil
 }
 
-func geocode(address string) (Coord, error) {
-	results, err := searchAddresses(address, 1)
+func Geocode(address string) (Coord, error) {
+	results, err := SearchAddresses(address, 1)
 	if err != nil {
 		return Coord{}, err
 	}
@@ -79,7 +79,7 @@ func geocode(address string) (Coord, error) {
 	return results[0].Coord, nil
 }
 
-func routeTime(from, to Coord, costing string) (float64, error) {
+func RouteTime(from, to Coord, costing string) (float64, error) {
 	reqJSON := fmt.Sprintf(
 		`{"locations":[{"lat":%f,"lon":%f},{"lat":%f,"lon":%f}],"costing":"%s"}`,
 		from.Lat, from.Lng, to.Lat, to.Lng, costing,
@@ -127,11 +127,11 @@ func routeTime(from, to Coord, costing string) (float64, error) {
 	return 0, lastErr
 }
 
-func calculateOne(origin Coord, poi POI) CommuteResult {
+func CalculateOne(origin Coord, poi POI) CommuteResult {
 	dest := Coord{Lat: poi.Lat, Lng: poi.Lng}
 	r := CommuteResult{POIName: poi.Name}
 
-	driving, err := routeTime(origin, dest, "auto")
+	driving, err := RouteTime(origin, dest, "auto")
 	if err != nil {
 		r.Error = err.Error()
 		return r
@@ -142,7 +142,7 @@ func calculateOne(origin Coord, poi POI) CommuteResult {
 	return r
 }
 
-func reverseGeocode(lat, lng float64) (GeoResult, error) {
+func ReverseGeocode(lat, lng float64) (GeoResult, error) {
 	u := fmt.Sprintf("https://nominatim.openstreetmap.org/reverse?lat=%f&lon=%f&format=json&zoom=18",
 		lat, lng)
 
@@ -179,7 +179,7 @@ func reverseGeocode(lat, lng float64) (GeoResult, error) {
 	}, nil
 }
 
-func formatMins(mins float64) string {
+func FormatMins(mins float64) string {
 	m := int(mins + 0.5)
 	if m < 60 {
 		return fmt.Sprintf("%d min", m)

@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"encoding/json"
@@ -21,13 +21,13 @@ type Store struct {
 	OriginLng  float64 `json:"origin_lng,omitempty"`
 }
 
-func storePath() string {
+func StorePath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".distancizer.json")
 }
 
-func loadStore() Store {
-	data, err := os.ReadFile(storePath())
+func LoadStore() Store {
+	data, err := os.ReadFile(StorePath())
 	if err != nil {
 		return Store{}
 	}
@@ -36,7 +36,7 @@ func loadStore() Store {
 	return s
 }
 
-func saveStore(s Store) {
+func SaveStore(s Store) {
 	data, _ := json.MarshalIndent(s, "", "  ")
-	_ = os.WriteFile(storePath(), data, 0644)
+	_ = os.WriteFile(StorePath(), data, 0644)
 }

@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"encoding/csv"
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func exportCSV(originName string, origin string, results []CommuteResult) (string, error) {
+func ExportCSV(originName string, origin string, results []CommuteResult) (string, error) {
 	safe := strings.Map(func(r rune) rune {
 		if r == ' ' {
 			return '-'
@@ -39,8 +39,8 @@ func exportCSV(originName string, origin string, results []CommuteResult) (strin
 		offpeak := ""
 		rush := ""
 		if r.OK {
-			offpeak = formatMins(r.DrivingMins)
-			rush = formatMins(r.RushHourMins)
+			offpeak = FormatMins(r.DrivingMins)
+			rush = FormatMins(r.RushHourMins)
 		} else if r.Error != "" {
 			offpeak = r.Error
 		}
