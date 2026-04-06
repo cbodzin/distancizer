@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	olc "github.com/google/open-location-code/go"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,6 +73,18 @@ type reverseGeoDoneMsg struct {
 	err      error
 	context  suggestContext
 	poiName  string
+}
+type coordExtractedMsg struct {
+	coord   Coord
+	context suggestContext
+	poiName string
+}
+type compoundPlusCodeMsg struct {
+	shortCode string
+	refCoord  Coord
+	context   suggestContext
+	poiName   string
+	err       error
 }
 type statusClearMsg struct{}
 
@@ -149,6 +163,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = viewMain
 		return m, clearStatusAfter(3 * time.Second)
 
+	case coordExtractedMsg:
+		m.setStatus("Looking up address for extracted coordinates...", false)
+		m.state = viewMain
+		lat, lng := msg.coord.Lat, msg.coord.Lng
+		ctx := msg.context
+		name := msg.poiName
+		return m, func() tea.Msg {
+			result, err := reverseGeocode(lat, lng)
+			return reverseGeoDoneMsg{lat: lat, lng: lng, result: result, err: err, context: ctx, poiName: name}
+		}
+
+	case compoundPlusCodeMsg:
+		if msg.err != nil {
+			m.state = viewMain
+			m.setStatus(fmt.Sprintf("Could not resolve locality: %v", msg.err), true)
+			return m, clearStatusAfter(4 * time.Second)
+		}
+		fullCode, err := olc.RecoverNearest(msg.shortCode, msg.refCoord.Lat, msg.refCoord.Lng)
+		if err != nil {
+			m.state = viewMain
+			m.setStatus(fmt.Sprintf("Invalid Plus Code: %v", err), true)
+			return m, clearStatusAfter(4 * time.Second)
+		}
+		coord, err := extractFullPlusCode(fullCode)
+		if err != nil {
+			m.state = viewMain
+			m.setStatus(fmt.Sprintf("Invalid Plus Code: %v", err), true)
+			return m, clearStatusAfter(4 * time.Second)
+		}
+		m.setStatus("Looking up address for Plus Code location...", false)
+		m.state = viewMain
+		lat, lng := coord.Lat, coord.Lng
+		ctx := msg.context
+		name := msg.poiName
+		return m, func() tea.Msg {
+			result, err := reverseGeocode(lat, lng)
+			return reverseGeoDoneMsg{lat: lat, lng: lng, result: result, err: err, context: ctx, poiName: name}
+		}
+
 	case searchDoneMsg:
 		if msg.err != nil {
 			m.state = viewMain
@@ -159,16 +212,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.suggestFor == suggestForOrigin {
 				m.state = viewSetOriginGPS
 				m.input.SetValue("")
-				m.input.Placeholder = "lat, lng (e.g. 40.6365, -80.0931)"
+				m.input.Placeholder = "lat, lng or Plus Code (e.g. 40.6365, -80.0931 or 87G2GMHP+GG)"
 				m.input.Focus()
-				m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates instead", msg.query), true)
+				m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates or Plus Code instead", msg.query), true)
 				return m, textinput.Blink
 			}
 			m.state = viewAddPOIGPS
 			m.input.SetValue("")
-			m.input.Placeholder = "lat, lng (e.g. 40.6365, -80.0931)"
+			m.input.Placeholder = "lat, lng or Plus Code (e.g. 40.6365, -80.0931 or 87G2GMHP+GG)"
 			m.input.Focus()
-			m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates instead", msg.query), true)
+			m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates or Plus Code instead", msg.query), true)
 			return m, textinput.Blink
 		}
 		if len(msg.results) == 1 {
@@ -332,12 +385,45 @@ func (m model) submitAddAddress(mm model) (model, tea.Cmd) {
 	}
 	mm.pendingAddress = addr
 	mm.suggestFor = suggestForPOI
-	mm.setStatus("Searching for address...", false)
 	mm.state = viewMain
-	return mm, func() tea.Msg {
-		time.Sleep(200 * time.Millisecond)
-		results, err := searchAddresses(addr, 5)
-		return searchDoneMsg{query: addr, results: results, err: err}
+
+	switch detectInputType(addr) {
+	case "full_pluscode":
+		mm.setStatus("Decoding Plus Code...", false)
+		poiName := mm.pendingPOI
+		return mm, func() tea.Msg {
+			coord, err := extractFullPlusCode(addr)
+			if err != nil {
+				return searchDoneMsg{query: addr, results: nil, err: err}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForPOI, poiName: poiName}
+		}
+	case "compound_pluscode":
+		shortCode, locality := parseCompoundPlusCode(addr)
+		mm.setStatus("Resolving compound Plus Code...", false)
+		poiName := mm.pendingPOI
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			refCoord, err := geocode(locality)
+			return compoundPlusCodeMsg{shortCode: shortCode, refCoord: refCoord, context: suggestForPOI, poiName: poiName, err: err}
+		}
+	case "google_maps_url":
+		mm.setStatus("Extracting coordinates from URL...", false)
+		poiName := mm.pendingPOI
+		return mm, func() tea.Msg {
+			coord, err := extractGoogleMapsCoords(addr)
+			if err != nil {
+				return searchDoneMsg{query: addr, results: nil, err: err}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForPOI, poiName: poiName}
+		}
+	default:
+		mm.setStatus("Searching for address...", false)
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			results, err := searchAddresses(addr, 5)
+			return searchDoneMsg{query: addr, results: results, err: err}
+		}
 	}
 }
 
@@ -362,12 +448,42 @@ func (m model) submitSetOrigin(mm model) (model, tea.Cmd) {
 	}
 	mm.pendingAddress = origin
 	mm.suggestFor = suggestForOrigin
-	mm.setStatus("Searching for address...", false)
 	mm.state = viewMain
-	return mm, func() tea.Msg {
-		time.Sleep(200 * time.Millisecond)
-		results, err := searchAddresses(origin, 5)
-		return searchDoneMsg{query: origin, results: results, err: err}
+
+	switch detectInputType(origin) {
+	case "full_pluscode":
+		mm.setStatus("Decoding Plus Code...", false)
+		return mm, func() tea.Msg {
+			coord, err := extractFullPlusCode(origin)
+			if err != nil {
+				return searchDoneMsg{query: origin, results: nil, err: err}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForOrigin}
+		}
+	case "compound_pluscode":
+		shortCode, locality := parseCompoundPlusCode(origin)
+		mm.setStatus("Resolving compound Plus Code...", false)
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			refCoord, err := geocode(locality)
+			return compoundPlusCodeMsg{shortCode: shortCode, refCoord: refCoord, context: suggestForOrigin, err: err}
+		}
+	case "google_maps_url":
+		mm.setStatus("Extracting coordinates from URL...", false)
+		return mm, func() tea.Msg {
+			coord, err := extractGoogleMapsCoords(origin)
+			if err != nil {
+				return searchDoneMsg{query: origin, results: nil, err: err}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForOrigin}
+		}
+	default:
+		mm.setStatus("Searching for address...", false)
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			results, err := searchAddresses(origin, 5)
+			return searchDoneMsg{query: origin, results: results, err: err}
+		}
 	}
 }
 
@@ -376,17 +492,43 @@ func (m model) submitSetOriginGPS(mm model) (model, tea.Cmd) {
 	if raw == "" {
 		return mm, nil
 	}
+
+	// Check for Plus Code first
+	switch detectInputType(raw) {
+	case "full_pluscode":
+		mm.setStatus("Decoding Plus Code...", false)
+		mm.state = viewMain
+		return mm, func() tea.Msg {
+			coord, err := extractFullPlusCode(raw)
+			if err != nil {
+				mm.setStatus(fmt.Sprintf("Invalid Plus Code: %v", err), true)
+				return statusClearMsg{}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForOrigin}
+		}
+	case "compound_pluscode":
+		shortCode, locality := parseCompoundPlusCode(raw)
+		mm.setStatus("Resolving compound Plus Code...", false)
+		mm.state = viewMain
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			refCoord, err := geocode(locality)
+			return compoundPlusCodeMsg{shortCode: shortCode, refCoord: refCoord, context: suggestForOrigin, err: err}
+		}
+	}
+
+	// Try parsing as lat, lng
 	parts := strings.SplitN(raw, ",", 2)
 	if len(parts) != 2 {
 		mm.state = viewMain
-		mm.setStatus("Invalid format. Use: lat, lng", true)
+		mm.setStatus("Invalid format. Use: lat, lng or a Plus Code", true)
 		return mm, clearStatusAfter(3 * time.Second)
 	}
 	lat, errLat := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 	lng, errLng := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 	if errLat != nil || errLng != nil {
 		mm.state = viewMain
-		mm.setStatus("Could not parse coordinates. Use: lat, lng", true)
+		mm.setStatus("Could not parse coordinates. Use: lat, lng or a Plus Code", true)
 		return mm, clearStatusAfter(3 * time.Second)
 	}
 	mm.setStatus("Looking up address for coordinates...", false)
@@ -402,17 +544,45 @@ func (m model) submitAddPOIGPS(mm model) (model, tea.Cmd) {
 	if raw == "" {
 		return mm, nil
 	}
+
+	// Check for Plus Code first
+	switch detectInputType(raw) {
+	case "full_pluscode":
+		mm.setStatus("Decoding Plus Code...", false)
+		mm.state = viewMain
+		poiName := mm.pendingPOI
+		return mm, func() tea.Msg {
+			coord, err := extractFullPlusCode(raw)
+			if err != nil {
+				mm.setStatus(fmt.Sprintf("Invalid Plus Code: %v", err), true)
+				return statusClearMsg{}
+			}
+			return coordExtractedMsg{coord: coord, context: suggestForPOI, poiName: poiName}
+		}
+	case "compound_pluscode":
+		shortCode, locality := parseCompoundPlusCode(raw)
+		mm.setStatus("Resolving compound Plus Code...", false)
+		mm.state = viewMain
+		poiName := mm.pendingPOI
+		return mm, func() tea.Msg {
+			time.Sleep(200 * time.Millisecond)
+			refCoord, err := geocode(locality)
+			return compoundPlusCodeMsg{shortCode: shortCode, refCoord: refCoord, context: suggestForPOI, poiName: poiName, err: err}
+		}
+	}
+
+	// Try parsing as lat, lng
 	parts := strings.SplitN(raw, ",", 2)
 	if len(parts) != 2 {
 		mm.state = viewMain
-		mm.setStatus("Invalid format. Use: lat, lng", true)
+		mm.setStatus("Invalid format. Use: lat, lng or a Plus Code", true)
 		return mm, clearStatusAfter(3 * time.Second)
 	}
 	lat, errLat := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 	lng, errLng := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
 	if errLat != nil || errLng != nil {
 		mm.state = viewMain
-		mm.setStatus("Could not parse coordinates. Use: lat, lng", true)
+		mm.setStatus("Could not parse coordinates. Use: lat, lng or a Plus Code", true)
 		return mm, clearStatusAfter(3 * time.Second)
 	}
 	poiName := mm.pendingPOI
@@ -535,12 +705,12 @@ func (m model) View() string {
 		b.WriteString("  Address: " + m.input.View() + "\n")
 		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
 	case viewSetOriginGPS:
-		b.WriteString("  Set origin from GPS coordinates:\n")
-		b.WriteString("  Coordinates: " + m.input.View() + "\n")
+		b.WriteString("  Set origin from GPS coordinates or Plus Code:\n")
+		b.WriteString("  Location: " + m.input.View() + "\n")
 		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
 	case viewAddPOIGPS:
 		b.WriteString(fmt.Sprintf("  Adding: %s\n", headerStyle.Render(m.pendingPOI)))
-		b.WriteString("  GPS Coordinates: " + m.input.View() + "\n")
+		b.WriteString("  GPS / Plus Code: " + m.input.View() + "\n")
 		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
 	case viewCalculating:
 		done := len(m.results)
