@@ -27,7 +27,7 @@ type DistancizerApp struct {
 	results []core.CommuteResult
 	sort    sortMode
 
-	poiList      *widget.List
+	poiTable     *widget.Table
 	originLabel  *widget.Label
 	resultsTable *widget.Table
 	statusLabel  *widget.Label
@@ -55,30 +55,41 @@ func (da *DistancizerApp) buildUI() fyne.CanvasObject {
 	da.progressBar = widget.NewProgressBar()
 	da.progressBar.Hide()
 
-	da.poiList = widget.NewList(
-		func() int { return len(da.store.POIs) },
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				widget.NewIcon(theme.RadioButtonIcon()),
-				widget.NewLabel("Name"),
-				widget.NewLabel("Address details here"),
-			)
+	da.poiTable = widget.NewTable(
+		func() (int, int) {
+			return len(da.store.POIs) + 1, 2
 		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			box := obj.(*fyne.Container)
-			poi := da.store.POIs[id]
-			icon := box.Objects[0].(*widget.Icon)
-			if poi.Lat != 0 || poi.Lng != 0 {
-				icon.SetResource(theme.RadioButtonCheckedIcon())
-			} else {
-				icon.SetResource(theme.RadioButtonIcon())
+		func() fyne.CanvasObject {
+			return widget.NewLabel("placeholder text")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+			if id.Row == 0 {
+				headers := []string{"Name", "Address"}
+				label.SetText(headers[id.Col])
+				label.TextStyle.Bold = true
+				return
 			}
-			box.Objects[1].(*widget.Label).SetText(poi.Name)
-			box.Objects[2].(*widget.Label).SetText(poi.Address)
+			if id.Row-1 >= len(da.store.POIs) {
+				label.SetText("")
+				return
+			}
+			poi := da.store.POIs[id.Row-1]
+			switch id.Col {
+			case 0:
+				label.SetText(poi.Name)
+			case 1:
+				label.SetText(poi.Address)
+			}
+			label.TextStyle.Bold = false
 		},
 	)
-	da.poiList.OnSelected = func(id widget.ListItemID) {
-		da.selectedPOI = id
+	da.poiTable.SetColumnWidth(0, 150)
+	da.poiTable.SetColumnWidth(1, 450)
+	da.poiTable.OnSelected = func(id widget.TableCellID) {
+		if id.Row > 0 {
+			da.selectedPOI = id.Row - 1
+		}
 	}
 
 	da.resultsTable = widget.NewTable(
@@ -148,31 +159,44 @@ func (da *DistancizerApp) buildUI() fyne.CanvasObject {
 		widget.NewToolbarAction(theme.HomeIcon(), func() {
 			da.showSetOriginDialog()
 		}),
-		widget.NewToolbarAction(theme.MediaPlayIcon(), func() {
-			da.calculateAll()
-		}),
-		widget.NewToolbarAction(theme.DocumentSaveIcon(), func() {
-			da.exportResults()
-		}),
 		widget.NewToolbarSeparator(),
 		widget.NewToolbarAction(theme.DeleteIcon(), func() {
 			da.deletePOI()
 		}),
 	)
 
+	exportPOIsBtn := widget.NewButtonWithIcon("Export POIs", theme.DocumentSaveIcon(), func() {
+		da.exportPOIs()
+	})
+
 	poiPanel := container.NewBorder(
-		widget.NewLabel("Points of Interest"), nil, nil, nil,
-		da.poiList,
+		container.NewHBox(widget.NewLabel("Points of Interest"), exportPOIsBtn),
+		nil, nil, nil,
+		da.poiTable,
+	)
+
+	calculateBtn := widget.NewButtonWithIcon("Calculate", theme.MediaPlayIcon(), func() {
+		da.calculateAll()
+	})
+	exportBtn := widget.NewButtonWithIcon("Export CSV", theme.DocumentSaveIcon(), func() {
+		da.exportResults()
+	})
+
+	resultsHeader := container.NewHBox(
+		widget.NewLabel("Results"),
+		da.sortSelect,
+		calculateBtn,
+		exportBtn,
 	)
 
 	resultsPanel := container.NewBorder(
-		container.NewHBox(widget.NewLabel("Results"), da.sortSelect),
+		resultsHeader,
 		nil, nil, nil,
 		da.resultsTable,
 	)
 
-	content := container.NewHSplit(poiPanel, resultsPanel)
-	content.SetOffset(0.35)
+	content := container.NewVSplit(poiPanel, resultsPanel)
+	content.SetOffset(0.4)
 
 	statusBar := container.NewVBox(da.progressBar, da.statusLabel)
 
@@ -192,7 +216,7 @@ func (da *DistancizerApp) originText() string {
 }
 
 func (da *DistancizerApp) refreshPOIList() {
-	da.poiList.Refresh()
+	da.poiTable.Refresh()
 }
 
 func (da *DistancizerApp) refreshResults() {
