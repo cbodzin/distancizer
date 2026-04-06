@@ -62,7 +62,7 @@ func (da *DistancizerApp) showGPSFallbackDialog(failedQuery string, onCoord func
 		},
 		da.window,
 	)
-	d.Resize(fyne.NewSize(500, 200))
+	d.Resize(fyne.NewSize(600, 200))
 	d.Show()
 }
 

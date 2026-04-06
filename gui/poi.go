@@ -18,7 +18,7 @@ func (da *DistancizerApp) showAddPOIDialog() {
 		widget.NewFormItem("Name", nameEntry),
 	}
 
-	dialog.NewForm("Add Point of Interest", "Next", "Cancel", items,
+	d := dialog.NewForm("Add Point of Interest", "Next", "Cancel", items,
 		func(ok bool) {
 			if !ok {
 				return
@@ -30,7 +30,9 @@ func (da *DistancizerApp) showAddPOIDialog() {
 			da.showPOIAddressDialog(name)
 		},
 		da.window,
-	).Show()
+	)
+	d.Resize(fyne.NewSize(600, 200))
+	d.Show()
 }
 
 func (da *DistancizerApp) showPOIAddressDialog(poiName string) {
@@ -67,7 +69,7 @@ func (da *DistancizerApp) showPOIAddressDialog(poiName string) {
 		},
 		da.window,
 	)
-	d.Resize(fyne.NewSize(500, 150))
+	d.Resize(fyne.NewSize(600, 200))
 	d.Show()
 }
 

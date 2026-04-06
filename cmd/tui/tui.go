@@ -389,6 +389,18 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.setStatus(fmt.Sprintf("Exported to %s", path), false)
 			return m, clearStatusAfter(5 * time.Second)
+		case "p":
+			if len(m.store.POIs) == 0 && m.store.Origin == "" {
+				m.setStatus("Nothing to export.", true)
+				return m, clearStatusAfter(3 * time.Second)
+			}
+			path, err := core.ExportPOIs(m.store)
+			if err != nil {
+				m.setStatus(fmt.Sprintf("Export failed: %v", err), true)
+				return m, clearStatusAfter(4 * time.Second)
+			}
+			m.setStatus(fmt.Sprintf("Exported POIs to %s", path), false)
+			return m, clearStatusAfter(5 * time.Second)
 		case "s":
 			if len(m.results) > 0 {
 				switch m.resultSort {
@@ -870,7 +882,7 @@ func (m model) View() string {
 	// Help bar
 	b.WriteString("\n")
 	if m.state == viewMain {
-		b.WriteString(helpStyle.Render("  a add · d delete · o origin · c calculate · s sort · e export csv · ↑↓ navigate · q quit") + "\n")
+		b.WriteString(helpStyle.Render("  a add · d delete · o origin · c calculate · s sort · e export csv · p export pois · ↑↓ navigate · q quit") + "\n")
 	}
 
 	return b.String()

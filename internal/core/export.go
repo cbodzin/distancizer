@@ -49,3 +49,27 @@ func ExportCSV(originName string, origin string, results []CommuteResult) (strin
 
 	return filename, w.Error()
 }
+
+func ExportPOIs(store Store) (string, error) {
+	filename := fmt.Sprintf("pois-%s.csv", time.Now().Format("2006-01-02"))
+
+	f, err := os.Create(filename)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	_ = w.Write([]string{"Name", "Type", "Address"})
+
+	if store.Origin != "" {
+		_ = w.Write([]string{store.OriginName, "Origin", store.Origin})
+	}
+	for _, poi := range store.POIs {
+		_ = w.Write([]string{poi.Name, "POI", poi.Address})
+	}
+
+	return filename, w.Error()
+}

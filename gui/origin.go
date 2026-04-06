@@ -17,7 +17,7 @@ func (da *DistancizerApp) showSetOriginDialog() {
 		widget.NewFormItem("Name", nameEntry),
 	}
 
-	dialog.NewForm("Set Origin", "Next", "Cancel", items,
+	d := dialog.NewForm("Set Origin", "Next", "Cancel", items,
 		func(ok bool) {
 			if !ok {
 				return
@@ -31,7 +31,9 @@ func (da *DistancizerApp) showSetOriginDialog() {
 			da.showOriginAddressDialog()
 		},
 		da.window,
-	).Show()
+	)
+	d.Resize(fyne.NewSize(600, 200))
+	d.Show()
 }
 
 func (da *DistancizerApp) showOriginAddressDialog() {
@@ -83,6 +85,6 @@ func (da *DistancizerApp) showOriginAddressDialog() {
 		},
 		da.window,
 	)
-	d.Resize(fyne.NewSize(500, 150))
+	d.Resize(fyne.NewSize(600, 200))
 	d.Show()
 }

@@ -54,6 +54,19 @@ func (da *DistancizerApp) calculateAll() {
 	}()
 }
 
+func (da *DistancizerApp) exportPOIs() {
+	if len(da.store.POIs) == 0 && da.store.Origin == "" {
+		da.setStatus("Nothing to export.")
+		return
+	}
+	path, err := core.ExportPOIs(da.store)
+	if err != nil {
+		da.setStatus(fmt.Sprintf("Export failed: %v", err))
+		return
+	}
+	da.setStatus(fmt.Sprintf("Exported POIs to %s", path))
+}
+
 func (da *DistancizerApp) exportResults() {
 	if len(da.results) == 0 {
 		da.setStatus("Nothing to export. Calculate first.")
