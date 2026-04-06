@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,14 @@ const (
 	suggestForOrigin
 )
 
+type resultSortMode int
+
+const (
+	sortAlpha resultSortMode = iota
+	sortCommuteAsc
+	sortCommuteDesc
+)
+
 type model struct {
 	state          viewState
 	store          Store
@@ -48,6 +57,7 @@ type model struct {
 	suggestCursor  int
 	suggestFor     suggestContext
 	calcTotal      int
+	resultSort     resultSortMode
 	statusMsg      string
 	statusErr      bool
 	width          int
@@ -95,9 +105,12 @@ func initialModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
+	store := loadStore()
+	sortPOIs(store.POIs)
+
 	return model{
 		state:   viewMain,
-		store:   loadStore(),
+		store:   store,
 		input:   ti,
 		spinner: s,
 	}
@@ -124,6 +137,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.results = append(m.results, msg.result)
 		if msg.nextIdx >= msg.total {
 			m.state = viewMain
+			m.resultSort = sortAlpha
 			m.setStatus("Calculation complete.", false)
 			return m, clearStatusAfter(3 * time.Second)
 		}
@@ -157,6 +171,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Lng:     msg.lng,
 			}
 			m.store.POIs = append(m.store.POIs, poi)
+			sortPOIs(m.store.POIs)
 			saveStore(m.store)
 			m.setStatus(fmt.Sprintf("Added: %s", poi.Name), false)
 		}
@@ -275,6 +290,44 @@ func clearStatusAfter(d time.Duration) tea.Cmd {
 	})
 }
 
+func sortPOIs(pois []POI) {
+	sort.Slice(pois, func(i, j int) bool {
+		return strings.ToLower(pois[i].Name) < strings.ToLower(pois[j].Name)
+	})
+}
+
+func (m model) sortedResults() []CommuteResult {
+	sorted := make([]CommuteResult, len(m.results))
+	copy(sorted, m.results)
+	switch m.resultSort {
+	case sortAlpha:
+		sort.Slice(sorted, func(i, j int) bool {
+			return strings.ToLower(sorted[i].POIName) < strings.ToLower(sorted[j].POIName)
+		})
+	case sortCommuteAsc:
+		sort.Slice(sorted, func(i, j int) bool {
+			if !sorted[i].OK {
+				return false
+			}
+			if !sorted[j].OK {
+				return true
+			}
+			return sorted[i].DrivingMins < sorted[j].DrivingMins
+		})
+	case sortCommuteDesc:
+		sort.Slice(sorted, func(i, j int) bool {
+			if !sorted[i].OK {
+				return true
+			}
+			if !sorted[j].OK {
+				return false
+			}
+			return sorted[i].DrivingMins > sorted[j].DrivingMins
+		})
+	}
+	return sorted
+}
+
 // Main view key handling
 func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
@@ -334,6 +387,18 @@ func (m model) updateMain(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.setStatus(fmt.Sprintf("Exported to %s", path), false)
 			return m, clearStatusAfter(5 * time.Second)
+		case "s":
+			if len(m.results) > 0 {
+				switch m.resultSort {
+				case sortAlpha:
+					m.resultSort = sortCommuteAsc
+				case sortCommuteAsc:
+					m.resultSort = sortCommuteDesc
+				case sortCommuteDesc:
+					m.resultSort = sortAlpha
+				}
+			}
+			return m, nil
 		case "j", "down":
 			if m.cursor < len(m.store.POIs)-1 {
 				m.cursor++
@@ -631,6 +696,7 @@ func (m model) acceptSuggestion(geo GeoResult) (model, tea.Cmd) {
 			Lng:     geo.Coord.Lng,
 		}
 		m.store.POIs = append(m.store.POIs, poi)
+		sortPOIs(m.store.POIs)
 		saveStore(m.store)
 		m.state = viewMain
 		m.setStatus(fmt.Sprintf("Added: %s", poi.Name), false)
@@ -759,14 +825,24 @@ func (m model) View() string {
 
 	// Results
 	if len(m.results) > 0 {
+		var sortLabel string
+		switch m.resultSort {
+		case sortAlpha:
+			sortLabel = "A-Z"
+		case sortCommuteAsc:
+			sortLabel = "Shortest first"
+		case sortCommuteDesc:
+			sortLabel = "Longest first"
+		}
 		b.WriteString("\n" + dimStyle.Render("  ──────────────────────────────────────────────────") + "\n")
-		b.WriteString(fmt.Sprintf("  %s  %s  %s\n",
+		b.WriteString(fmt.Sprintf("  %s  %s  %s  %s\n",
 			headerStyle.Render(padRight("Destination", 22)),
 			headerStyle.Render(padRight("Off-Peak", 12)),
-			headerStyle.Render("Rush Hour*")))
+			headerStyle.Render(padRight("Rush Hour*", 12)),
+			dimStyle.Render("["+sortLabel+"]")))
 		b.WriteString(dimStyle.Render("  ──────────────────────────────────────────────────") + "\n")
 
-		for _, r := range m.results {
+		for _, r := range m.sortedResults() {
 			name := padRight(truncate(r.POIName, 22), 22)
 			if r.Error != "" {
 				b.WriteString(fmt.Sprintf("  %s  %s\n", name, errStyle.Render(r.Error)))
@@ -792,7 +868,7 @@ func (m model) View() string {
 	// Help bar
 	b.WriteString("\n")
 	if m.state == viewMain {
-		b.WriteString(helpStyle.Render("  a add · d delete · o origin · c calculate · e export csv · ↑↓ navigate · q quit") + "\n")
+		b.WriteString(helpStyle.Render("  a add · d delete · o origin · c calculate · s sort · e export csv · ↑↓ navigate · q quit") + "\n")
 	}
 
 	return b.String()
