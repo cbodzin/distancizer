@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ const (
 	viewAddAddress
 	viewSetOriginName
 	viewSetOrigin
+	viewSetOriginGPS
+	viewAddPOIGPS
 	viewCalculating
 	viewSuggest
 )
@@ -61,6 +64,13 @@ type searchDoneMsg struct {
 	query   string
 	results []GeoResult
 	err     error
+}
+type reverseGeoDoneMsg struct {
+	lat, lng float64
+	result   GeoResult
+	err      error
+	context  suggestContext
+	poiName  string
 }
 type statusClearMsg struct{}
 
@@ -105,6 +115,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.spinner.Tick, calcPOI(msg.origin, msg.pois, msg.nextIdx, msg.total))
 
+	case reverseGeoDoneMsg:
+		switch msg.context {
+		case suggestForOrigin:
+			displayAddr := fmt.Sprintf("%.6f, %.6f", msg.lat, msg.lng)
+			if msg.err == nil {
+				displayAddr = msg.result.DisplayName
+			}
+			if m.store.OriginName == "" {
+				m.store.OriginName = fmt.Sprintf("GPS (%.6f, %.6f)", msg.lat, msg.lng)
+			}
+			m.store.Origin = displayAddr
+			m.store.OriginLat = msg.lat
+			m.store.OriginLng = msg.lng
+			saveStore(m.store)
+			m.results = nil
+			m.setStatus("Origin set from GPS coordinates.", false)
+		case suggestForPOI:
+			displayAddr := fmt.Sprintf("%.6f, %.6f", msg.lat, msg.lng)
+			if msg.err == nil {
+				displayAddr = msg.result.DisplayName
+			}
+			poi := POI{
+				Name:    msg.poiName,
+				Address: displayAddr,
+				Lat:     msg.lat,
+				Lng:     msg.lng,
+			}
+			m.store.POIs = append(m.store.POIs, poi)
+			saveStore(m.store)
+			m.setStatus(fmt.Sprintf("Added: %s", poi.Name), false)
+		}
+		m.state = viewMain
+		return m, clearStatusAfter(3 * time.Second)
+
 	case searchDoneMsg:
 		if msg.err != nil {
 			m.state = viewMain
@@ -112,9 +156,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, clearStatusAfter(4 * time.Second)
 		}
 		if len(msg.results) == 0 {
-			m.state = viewMain
-			m.setStatus(fmt.Sprintf("No addresses found for: %s", msg.query), true)
-			return m, clearStatusAfter(4 * time.Second)
+			if m.suggestFor == suggestForOrigin {
+				m.state = viewSetOriginGPS
+				m.input.SetValue("")
+				m.input.Placeholder = "lat, lng (e.g. 40.6365, -80.0931)"
+				m.input.Focus()
+				m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates instead", msg.query), true)
+				return m, textinput.Blink
+			}
+			m.state = viewAddPOIGPS
+			m.input.SetValue("")
+			m.input.Placeholder = "lat, lng (e.g. 40.6365, -80.0931)"
+			m.input.Focus()
+			m.setStatus(fmt.Sprintf("Address not found: %s — enter GPS coordinates instead", msg.query), true)
+			return m, textinput.Blink
 		}
 		if len(msg.results) == 1 {
 			return m.acceptSuggestion(msg.results[0])
@@ -144,6 +199,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateInput(msg, m.submitSetOriginName)
 	case viewSetOrigin:
 		return m.updateInput(msg, m.submitSetOrigin)
+	case viewSetOriginGPS:
+		return m.updateInput(msg, m.submitSetOriginGPS)
+	case viewAddPOIGPS:
+		return m.updateInput(msg, m.submitAddPOIGPS)
 	case viewCalculating:
 		return m, nil
 	case viewSuggest:
@@ -312,6 +371,59 @@ func (m model) submitSetOrigin(mm model) (model, tea.Cmd) {
 	}
 }
 
+func (m model) submitSetOriginGPS(mm model) (model, tea.Cmd) {
+	raw := strings.TrimSpace(mm.input.Value())
+	if raw == "" {
+		return mm, nil
+	}
+	parts := strings.SplitN(raw, ",", 2)
+	if len(parts) != 2 {
+		mm.state = viewMain
+		mm.setStatus("Invalid format. Use: lat, lng", true)
+		return mm, clearStatusAfter(3 * time.Second)
+	}
+	lat, errLat := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	lng, errLng := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if errLat != nil || errLng != nil {
+		mm.state = viewMain
+		mm.setStatus("Could not parse coordinates. Use: lat, lng", true)
+		return mm, clearStatusAfter(3 * time.Second)
+	}
+	mm.setStatus("Looking up address for coordinates...", false)
+	mm.state = viewMain
+	return mm, func() tea.Msg {
+		result, err := reverseGeocode(lat, lng)
+		return reverseGeoDoneMsg{lat: lat, lng: lng, result: result, err: err, context: suggestForOrigin}
+	}
+}
+
+func (m model) submitAddPOIGPS(mm model) (model, tea.Cmd) {
+	raw := strings.TrimSpace(mm.input.Value())
+	if raw == "" {
+		return mm, nil
+	}
+	parts := strings.SplitN(raw, ",", 2)
+	if len(parts) != 2 {
+		mm.state = viewMain
+		mm.setStatus("Invalid format. Use: lat, lng", true)
+		return mm, clearStatusAfter(3 * time.Second)
+	}
+	lat, errLat := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	lng, errLng := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if errLat != nil || errLng != nil {
+		mm.state = viewMain
+		mm.setStatus("Could not parse coordinates. Use: lat, lng", true)
+		return mm, clearStatusAfter(3 * time.Second)
+	}
+	poiName := mm.pendingPOI
+	mm.setStatus("Looking up address for coordinates...", false)
+	mm.state = viewMain
+	return mm, func() tea.Msg {
+		result, err := reverseGeocode(lat, lng)
+		return reverseGeoDoneMsg{lat: lat, lng: lng, result: result, err: err, context: suggestForPOI, poiName: poiName}
+	}
+}
+
 func (m model) updateSuggest(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		switch key.String() {
@@ -421,6 +533,14 @@ func (m model) View() string {
 	case viewSetOrigin:
 		b.WriteString(fmt.Sprintf("  Setting origin: %s\n", headerStyle.Render(m.store.OriginName)))
 		b.WriteString("  Address: " + m.input.View() + "\n")
+		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
+	case viewSetOriginGPS:
+		b.WriteString("  Set origin from GPS coordinates:\n")
+		b.WriteString("  Coordinates: " + m.input.View() + "\n")
+		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
+	case viewAddPOIGPS:
+		b.WriteString(fmt.Sprintf("  Adding: %s\n", headerStyle.Render(m.pendingPOI)))
+		b.WriteString("  GPS Coordinates: " + m.input.View() + "\n")
 		b.WriteString(helpStyle.Render("  enter confirm · esc cancel") + "\n\n")
 	case viewCalculating:
 		done := len(m.results)

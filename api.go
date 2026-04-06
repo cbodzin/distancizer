@@ -142,6 +142,43 @@ func calculateOne(origin Coord, poi POI) CommuteResult {
 	return r
 }
 
+func reverseGeocode(lat, lng float64) (GeoResult, error) {
+	u := fmt.Sprintf("https://nominatim.openstreetmap.org/reverse?lat=%f&lon=%f&format=json&zoom=18",
+		lat, lng)
+
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return GeoResult{}, err
+	}
+	req.Header.Set("User-Agent", "Distancizer/1.0 (commute-calculator)")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return GeoResult{}, fmt.Errorf("reverse geocoding request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var raw struct {
+		Lat         string `json:"lat"`
+		Lon         string `json:"lon"`
+		DisplayName string `json:"display_name"`
+		Error       string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return GeoResult{}, fmt.Errorf("bad reverse geocoding response: %w", err)
+	}
+	if raw.Error != "" {
+		return GeoResult{}, fmt.Errorf("reverse geocode: %s", raw.Error)
+	}
+
+	rlat, _ := strconv.ParseFloat(raw.Lat, 64)
+	rlng, _ := strconv.ParseFloat(raw.Lon, 64)
+	return GeoResult{
+		DisplayName: raw.DisplayName,
+		Coord:       Coord{Lat: rlat, Lng: rlng},
+	}, nil
+}
+
 func formatMins(mins float64) string {
 	m := int(mins + 0.5)
 	if m < 60 {
