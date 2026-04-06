@@ -1,9 +1,10 @@
 # Distancizer
 
-A terminal-based commute time calculator built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea). Set an origin address and a list of Points of Interest (POIs), then calculate estimated driving times to each one using open routing data.
+A commute time calculator with both a terminal UI and a macOS desktop GUI. Set an origin address and a list of Points of Interest (POIs), then calculate estimated driving times to each one using open routing data.
 
 ## Features
 
+- **Two interfaces** — terminal TUI (Bubble Tea) and macOS desktop GUI (Fyne)
 - **Address geocoding** via [Nominatim](https://nominatim.openstreetmap.org/) with interactive suggestion picker
 - **Driving time calculation** via [Valhalla](https://valhalla1.openstreetmap.de/) with off-peak and estimated rush hour times (1.4x multiplier)
 - **Google Plus Codes** support — full codes (e.g. `87G2GMHP+GG`) and compound codes (e.g. `MW2F+27 Wexford, PA`) are auto-detected in any address field and decoded offline
@@ -12,29 +13,38 @@ A terminal-based commute time calculator built with Go and [Bubble Tea](https://
 - **Sortable results** — cycle through alphabetical, shortest-first, and longest-first sort orders
 - **POIs sorted alphabetically** in the list
 - **CSV export** of calculated commute times
-- **Persistent storage** — POIs and origin are saved to `~/.distancizer.json` between sessions
+- **Persistent storage** — POIs and origin are saved to `~/.distancizer.json` between sessions (shared by both TUI and GUI)
 
-## Installation
+## Building
 
-```
-go install
-```
-
-Or build from source:
+### Terminal UI (TUI)
 
 ```
-go build -o distancizer .
+go build -o distancizer ./cmd/tui/
+```
+
+### macOS Desktop GUI
+
+```
+go build -o distancizer-gui ./gui/
+```
+
+To create a macOS `.app` bundle:
+
+```
+go install fyne.io/fyne/v2/cmd/fyne@latest
+fyne package -os darwin -name Distancizer -appID com.distancizer.app -src ./gui/
 ```
 
 ## Usage
 
-Run the app:
+### TUI
 
 ```
 ./distancizer
 ```
 
-### Keyboard Shortcuts
+#### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -50,9 +60,17 @@ Run the app:
 | `Esc` | Cancel current action |
 | `q` / `Ctrl+C` | Quit |
 
+### GUI
+
+```
+./distancizer-gui
+```
+
+The GUI provides toolbar buttons for all actions: Add POI, Set Origin, Calculate, Export, and Delete. Results can be sorted via a dropdown menu.
+
 ### Address Input
 
-When entering an address for a POI or origin, you can provide any of the following:
+When entering an address for a POI or origin (in either interface), you can provide any of the following:
 
 - **Street address** — geocoded via Nominatim (e.g. `123 Main St, Pittsburgh, PA`)
 - **Full Plus Code** — decoded offline (e.g. `87G2GMHP+GG`)
@@ -61,11 +79,21 @@ When entering an address for a POI or origin, you can provide any of the followi
 
 If the address lookup returns no results, you'll be prompted to enter GPS coordinates (`lat, lng`) or a Plus Code as a fallback.
 
+## Project Structure
+
+```
+distancizer/
+  internal/core/    Shared business logic (geocoding, routing, store, Plus Codes, export)
+  cmd/tui/          Terminal UI (Bubble Tea)
+  gui/              macOS Desktop GUI (Fyne)
+```
+
 ## Dependencies
 
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) — TUI framework
 - [Bubbles](https://github.com/charmbracelet/bubbles) — TUI components (text input, spinner)
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) — Terminal styling
+- [Fyne](https://fyne.io/) — Cross-platform GUI toolkit
 - [Open Location Code](https://github.com/google/open-location-code) — Plus Code encoding/decoding
 
 ## External Services
