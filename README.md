@@ -12,7 +12,7 @@ A commute time calculator with both a terminal UI and a macOS desktop GUI. Set a
 - **GPS coordinate fallback** — if an address can't be found, you're prompted to enter `lat, lng` or a Plus Code instead
 - **Sortable results** — cycle through alphabetical, shortest-first, and longest-first sort orders
 - **POIs sorted alphabetically** in the list
-- **CSV export** of calculated commute times
+- **CSV export** of calculated commute times and POI/origin list
 - **Persistent storage** — POIs and origin are saved to `~/.distancizer.json` between sessions (shared by both TUI and GUI)
 
 ## Building
@@ -54,6 +54,7 @@ fyne package -os darwin -name Distancizer -appID com.distancizer.app -src ./gui/
 | `c` | Calculate commute times |
 | `s` | Cycle result sort (A-Z / Shortest / Longest) |
 | `e` | Export results to CSV |
+| `p` | Export POIs to CSV |
 | `j` / `Down` | Move cursor down |
 | `k` / `Up` | Move cursor up |
 | `Enter` | Confirm input or selection |
@@ -66,7 +67,7 @@ fyne package -os darwin -name Distancizer -appID com.distancizer.app -src ./gui/
 ./distancizer-gui
 ```
 
-The GUI provides toolbar buttons for all actions: Add POI, Set Origin, Calculate, Export, and Delete. Results can be sorted via a dropdown menu.
+The GUI has a top/bottom split layout with POIs on top and results on the bottom. The toolbar provides Add POI, Set Origin, and Delete actions. The results pane has Calculate, Export CSV, and sort controls. An Export POIs button in the POI pane exports all locations (origin + POIs) with name, type, and address.
 
 ### Address Input
 
